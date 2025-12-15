@@ -6,18 +6,13 @@ from keybert import KeyBERT
 import pdfplumber
 from docx import Document
 
-# -----------------------------------------
-# LOAD MODELS
-# -----------------------------------------
+
 embed_model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
 kw_model = KeyBERT(model="sentence-transformers/all-MiniLM-L6-v2")
 
 app = Flask(__name__)
 CORS(app)
 
-# -----------------------------------------
-# UTIL FUNCTIONS
-# -----------------------------------------
 
 def extract_text_from_pdf(file):
     """Extract text from PDF using pdfplumber."""
@@ -44,9 +39,6 @@ def cosine_similarity(a, b):
         return 0
     return np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))
 
-# -----------------------------------------
-# MATCH API (Updated for PDF/DOCX/TXT)
-# -----------------------------------------
 
 @app.route("/match", methods=["POST"])
 def match_resume():
@@ -54,7 +46,7 @@ def match_resume():
         resume_text = ""
         jd = ""
 
-        # ------------------ FILE UPLOAD ------------------
+       
         uploaded_file = request.files.get("file")
         jd = request.form.get("jd", "")
 
@@ -71,11 +63,10 @@ def match_resume():
                 resume_text = uploaded_file.read().decode("utf-8")
 
         else:
-            # ------------------ PASTED TEXT ------------------
+          
             resume_text = request.form.get("resume", "")
             jd = request.form.get("jd", "")
 
-        # ------------------ VALIDATION ------------------
         if not resume_text or not jd:
             return jsonify({"error": "Resume or JD missing"}), 400
 
@@ -112,9 +103,6 @@ def match_resume():
         return jsonify({"error": str(e)}), 500
 
 
-# -----------------------------------------
-# RUN SERVER
-# -----------------------------------------
 
 if __name__ == "__main__":
     app.run(port=5000)
