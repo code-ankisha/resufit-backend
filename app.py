@@ -1,20 +1,25 @@
 import os
-from flask import Flask, request, jsonify
-from flask_cors import CORS
 import re
 import numpy as np
-from sentence_transformers import SentenceTransformer
+import requests
+from flask import Flask, request, jsonify
+from flask_cors import CORS
 import pdfplumber
 from docx import Document
 
+# ---------------- App Setup ----------------
 app = Flask(__name__)
 CORS(app, supports_credentials=True)
 
-# Load sentence transformer model
-model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
+# HuggingFace API
+HF_API_URL = "https://api-inference.huggingface.co/pipeline/feature-extraction/sentence-transformers/all-MiniLM-L6-v2"
+HF_API_KEY = os.environ.get("HF_API_KEY")
 
+HEADERS = {
+    "Authorization": f"Bearer {HF_API_KEY}"
+}
 
-# ---------- File Readers ----------
+# ---------------- File Readers ----------------
 def read_pdf(file):
     text = ""
     with pdfplumber.open(file) as pdf:
@@ -29,25 +34,36 @@ def read_docx(file):
     return "\n".join(p.text for p in doc.paragraphs)
 
 
-# ---------- Utilities ----------
+# ---------------- HuggingFace Embedding ----------------
+def get_embedding(text):
+    response = requests.post(
+        HF_API_URL,
+        headers=HEADERS,
+        json={"inputs": text}
+    )
+
+    if response.status_code != 200:
+        raise Exception("HuggingFace API error")
+
+    emb = np.array(response.json())
+    return emb.mean(axis=0)
+
+
 def cosine(a, b):
     if np.linalg.norm(a) == 0 or np.linalg.norm(b) == 0:
         return 0
     return np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))
 
 
+# ---------------- ATS Utilities ----------------
 def extract_skills(text):
     SKILLS = [
         "python", "java", "javascript", "react", "node", "express", "flask",
         "mongodb", "mysql", "html", "css", "tailwind", "git", "github",
         "rest api", "jwt", "firebase", "data structures", "oops", "dbms"
     ]
-    found = []
-    lower = text.lower()
-    for s in SKILLS:
-        if s in lower:
-            found.append(s)
-    return list(set(found))
+    text = text.lower()
+    return list({s for s in SKILLS if s in text})
 
 
 def has_email(text):
@@ -62,7 +78,7 @@ def has_address(text):
     return any(x in text.lower() for x in ["india", "road", "street", "sector", "city"])
 
 
-# ---------- API Route ----------
+# ---------------- API Route ----------------
 @app.route("/match", methods=["POST"])
 def match_resume():
     resume_text = ""
@@ -83,12 +99,12 @@ def match_resume():
     if not resume_text or not jd:
         return jsonify({"error": "Missing resume or JD"}), 400
 
-    # Embeddings & similarity
-    emb_r = model.encode(resume_text)
-    emb_j = model.encode(jd)
+    # ---- Embeddings via HuggingFace ----
+    emb_r = get_embedding(resume_text)
+    emb_j = get_embedding(jd)
+
     score = round(cosine(emb_r, emb_j) * 100)
 
-    # Skill analysis
     resume_skills = extract_skills(resume_text)
     jd_skills = extract_skills(jd)
     missing_skills = list(set(jd_skills) - set(resume_skills))
@@ -143,8 +159,9 @@ def match_resume():
     })
 
 
-# ---------- Render entry point ----------
+# ---------------- Render Entry ----------------
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
+
 
